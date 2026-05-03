@@ -1,0 +1,167 @@
+# Vojker-Supertensor
+
+# Vojker Triage Trader & Panama Signal Core
+
+> **Signal Over Noise.** > _A deterministic, JAX-powered decision engine designed for high-frequency auditable transaction triage._
+
+---
+
+## 1. Overview & Philosophy
+
+Vojker Triage Trader is not a speculative, hype-driven prediction bot. It is a strictly deterministic, rules-based decision engine (Finite State Machine) designed to extract actionable insights from highly volatile and noisy data streams.
+
+The system operates on the core principle: **"Bytes don't lie."** By eliminating systemic variance, the same input tensor always yields the exact same auditable output. It processes data in continuous, unyielding cycles at **16Hz (62.5ms)**, ensuring low-latency execution and surgical intervention within the 0.8% "Signal Core" of transactional data.
+
+### The Core Mandate:
+
+- **Deterministic Execution**: Pure mathematical contracts via JAX (XLA).
+- **Noise Cancellation**: Acting as digital noise-canceling headphones to extract micro-signals from high-decibel market noise.
+- **Audit-Grade Compliance**: Continuous state and performance tracking, logging every decision point into PostgreSQL with cryptographic SHA256 hashes.
+- **Continuous Alpha**: Data Lake integration for offline machine learning parameter optimization.
+
+---
+
+## 2. Architecture & Directory Tree
+
+The repository strictly follows the **Single Responsibility Principle (SRP)**. We group code by its functional domain rather than visual representation to ensure maximum testability, security, and parallelization.
+
+````text
+vojker-core/
+├── adapters/                 # Data collection, Supertensor compression & Data Lake I/O
+│   ├── mt5_adapter.py        # Assembles the (8, 3, 30, 4) Supertensor
+│   └── pg_adapter.py         # PostgreSQL interface (Tensor Vault & SHA256 Audit Ledger)
+├── packs/                    # Airgapped docking area for customized alpha packages
+│   └── wolfpack_alpha/
+│       └── logic.py          # Triple Quantile Gate (TQG) filtration via JAX/vmap
+├── scripts/                  # Runtime execution, state control & analytics
+│   ├── panama_fsm.py         # Deterministic 6-state Finite State Machine (FSM)
+│   ├── triage_engine.py      # Main 16Hz execution loop & Trader HUD
+│   ├── spc_monitor.py        # Statistical Process Control (Cpk 3.0 tracker)
+│   └── alpha_forge.py        # JAX-powered ML optimizer for historical parameters
+└── web_ui/                   # Professional UI aligned with Vojker's identity
+
+Vojker ja sen stragiset käyttökohteet sekä viestintä eri paikkoihin
+Oma Gem
+Tämä oli erinomainen päätös. Lähettämäsi teksti sisälsi paljon arvokasta tietoa, mutta se oli selvästi muodostunut paloista ajan myötä: siellä oli useampi otsikko, toistuvia rakenteita ja peräkkäin liimattuja vanhoja commit-viestejä.
+
+Siivosin, yhdistin ja ammattimaistin koko README.md -dokumentin. Yhdistin vanhat selitykset (kuten 4D-supertensorin muodon ja RNAI-kerroksen) loogiseksi kokonaisuudeksi ja lisäsin uuden Phase 5 (PostgreSQL, SHA256, Alpha Forge, SPC) saumattomasti osaksi arkkitehtuurikuvausta.
+
+Poistin myös turhan toiston, jotta dokumentti on suoraan valmis esiteltäväksi kenelle tahansa kvantti-insinöörille tai sijoittajalle.
+
+Kopioi alla oleva teksti ja korvaa sillä koko nykyinen README.md -tiedostosi:
+
+Markdown
+# Vojker-Supertensor
+
+# Vojker Triage Trader & Panama Signal Core
+
+> **Signal Over Noise.** > _A deterministic, JAX-powered decision engine designed for high-frequency auditable transaction triage._
+
+---
+
+## 1. Overview & Philosophy
+
+Vojker Triage Trader is not a speculative, hype-driven prediction bot. It is a strictly deterministic, rules-based decision engine (Finite State Machine) designed to extract actionable insights from highly volatile and noisy data streams.
+
+The system operates on the core principle: **"Bytes don't lie."** By eliminating systemic variance, the same input tensor always yields the exact same auditable output. It processes data in continuous, unyielding cycles at **16Hz (62.5ms)**, ensuring low-latency execution and surgical intervention within the 0.8% "Signal Core" of transactional data.
+
+### The Core Mandate:
+- **Deterministic Execution**: Pure mathematical contracts via JAX (XLA).
+- **Noise Cancellation**: Acting as digital noise-canceling headphones to extract micro-signals from high-decibel market noise.
+- **Audit-Grade Compliance**: Continuous state and performance tracking, logging every decision point into PostgreSQL with cryptographic SHA256 hashes.
+- **Continuous Alpha**: Data Lake integration for offline machine learning parameter optimization.
+
+---
+
+## 2. Architecture & Directory Tree
+
+The repository strictly follows the **Single Responsibility Principle (SRP)**. We group code by its functional domain rather than visual representation to ensure maximum testability, security, and parallelization.
+
+```text
+vojker-core/
+├── adapters/                 # Data collection, Supertensor compression & Data Lake I/O
+│   ├── mt5_adapter.py        # Assembles the (8, 3, 30, 4) Supertensor
+│   └── pg_adapter.py         # PostgreSQL interface (Tensor Vault & SHA256 Audit Ledger)
+├── packs/                    # Airgapped docking area for customized alpha packages
+│   └── wolfpack_alpha/
+│       └── logic.py          # Triple Quantile Gate (TQG) filtration via JAX/vmap
+├── scripts/                  # Runtime execution, state control & analytics
+│   ├── panama_fsm.py         # Deterministic 6-state Finite State Machine (FSM)
+│   ├── triage_engine.py      # Main 16Hz execution loop & Trader HUD
+│   ├── spc_monitor.py        # Statistical Process Control (Cpk 3.0 tracker)
+│   └── alpha_forge.py        # JAX-powered ML optimizer for historical parameters
+└── web_ui/                   # Professional UI aligned with Vojker's identity
+
+3. How the Engine Works: The 5-Phase Pipeline
+The decision-making pipeline flows without side effects through a series of multi-dimensional transformations:
+
+Phase 1: N-Dimensional Supertensor Ingestion
+Market and external context data are compressed into a strict 4D Supertensor of shape (8, 3, 30, 4). Shapes are a rigid contract; if the data doesn't fit, the system rejects it immediately.
+
+Dimension 1 (8): Unique market symbols (The "Wolfpack"). Processed simultaneously via JAX vmap.
+
+Dimension 2 (3): Discrete K-axes (K=0: M1 data, K=1: M5 data, K=2: RNAI / Relative Net Aggression Index context layer).
+
+Dimension 3 (30): Sequential OHLC historical bars.
+
+Dimension 4 (4): Open, High, Low, Close price vectors.
+
+Phase 2: Triple Quantile Gate (TQG)
+Using JAX's advanced vectorization (vmap) and Just-In-Time compilation (jit), the system filters raw noise down to the core signal via three mathematical gates:
+
+Gate I (Volatility/Spread): Rejects transactions instantly if the movement lacks structural volume or liquidity spread exceeds thresholds.
+
+Gate II (Structural Alignment): Validates structural Break-of-Structure (BOS) across both M1 and M5 timeframes.
+
+Gate III (RNAI Context): Analyzes the K=2 axis to differentiate between true market aggression and passive absorption.
+
+Phase 3: Panama Finite State Machine (FSM)
+Every asset transitions through a non-leaky, deterministic state machine:
+0: NEUTRAL ⟶ 1: IDLE ⟶ 2: ARMED ⟶ 3: ACTION ⟶ 4: MANAGE ⟶ 5: EXIT
+
+Transitions occur in memory without persisting intermediate data, eliminating systemic lag or race conditions. Includes RNAI-based exhaustion protection (cancels setups if aggression decays).
+
+Phase 4: 16Hz Execution & Real-Time Output (Trader HUD)
+The runtime loop is synchronized at exactly 62.5ms intervals. Output from each cycle routes immediately to the MT5 Order API and updates the asynchronous Trader Command Center HUD (running at an anti-flicker 4Hz refresh rate).
+
+Phase 5: Data Lake, SHA256 Auditing & SPC
+The system achieves Institutional Maturity by persisting critical data securely:
+
+Trade Audit Ledger: Every FSM decision is logged into PostgreSQL with a SHA256 Cryptographic Signature, ensuring historical records are tamper-proof ("Bytes don't lie").
+
+Tensor Vault: The exact (8, 3, 30, 4) tensor present at the moment of execution is saved in binary format for future analysis.
+
+Alpha Forge: Offline JAX-powered ML engine that runs grid-searches on the Tensor Vault to dynamically optimize parameter thresholds for upcoming market sessions.
+
+SPC Monitor: Continuous Statistical Process Control (Six Sigma) tracks engine latency to ensure a strict Cpk≥3.0 stability rating.
+
+4. Institutional Visual System
+Vojker adheres to the Signal over Noise design language. The UI completely discards bright, disruptive "crypto-hype" visual aesthetics (such as neon blues, 3D particles, and excessive capitalizations).
+
+The visual identity relies on a high-contrast, low-cognitive-load palette:
+
+Parchment (#FAF8F5) for readability and structural grounding.
+
+Warm Noir (#2A2420) for primary typography.
+
+Aged Gold (#B09A6B) as the singular accent for verified active states and signatures.
+
+This clean, authoritative layout guarantees that decision-makers and compliance officers see only the underlying mathematical facts without aesthetic interference.
+
+5. Project Status
+Current Status: PHASE 5 COMPLETED (Institutional Maturity & ML-Ready)
+
+✅ Environment Isolation & SRP Architecture
+
+✅ MT5 Supertensor (8, 3, 30, 4) Ingestion & RNAI Context (Phase 1)
+
+✅ Triple Quantile Gate JAX/vmap Engine (Phase 2)
+
+✅ Bi-directional Panama FSM 6-Step Cycle (Phase 3)
+
+✅ 16Hz Triage Engine & Anti-flicker HUD (Phase 4)
+
+✅ PostgreSQL Data Lake, Tensor Vault & SHA256 Audit Ledger (Phase 5)
+
+✅ Statistical Process Control (Cpk 3.0) & Alpha Forge Implementation (Phase 5)
+````

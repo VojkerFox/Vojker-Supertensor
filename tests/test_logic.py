@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import sys
 import os
 import jax
@@ -12,17 +13,18 @@ from packs.wolfpack_alpha.logic import analyze_signal_core
 def create_synthetic_supertensor():
     """
     Luodaan synteettinen (8, 3, 30, 4) tensori testausta varten.
-    Symboli 0: Täydellinen signaali (Läpäisee kaikki portit)
+    Symboli 0: Täydellinen LONG signaali (Läpäisee kaikki portit)
     Symboli 1: Kohina (Matala volatiliteetti - Gate I hylkää)
     Symboli 2: Kohina (Väärä suunta - Gate II hylkää)
     Symboli 3: Kohina (Matala RNAI / Absorptio - Gate III hylkää)
+    Symboli 4: Täydellinen SHORT signaali (UUSI)
     Muut: Tyhjää
     """
     shape = (8, 3, 30, 4)
     # Alustetaan nollilla (Open=1.0, High=1.0, Low=1.0, Close=1.0)
     data = np.ones(shape, dtype=np.float32)
     
-    # --- SYMBOLI 0: TÄYDELLINEN SIGNAALI ---
+    # --- SYMBOLI 0: TÄYDELLINEN LONG SIGNAALI ---
     # K=0 (M1), Viimeisin kynttilä: Open=1.0, High=1.5, Low=0.9, Close=1.4 (Suuri ja nouseva)
     data[0, 0, -1, :] = [1.0, 1.5, 0.9, 1.4]
     # K=1 (M5), Viimeisin kynttilä: Open=1.0, Close=1.2 (Nouseva linjaus)
@@ -44,10 +46,18 @@ def create_synthetic_supertensor():
     data[3, 1, -1, :] = [1.0, 1.3, 0.9, 1.2] # M5 linjassa
     data[3, 2, :, :] = -0.5 # MUTTA RNAI negatiivinen (Passiivinen absorptio, ei aggressio)
 
+    # --- SYMBOLI 4: TÄYDELLINEN SHORT SIGNAALI ---
+    # K=0 (M1), Viimeisin kynttilä: Open=1.5, High=1.5, Low=0.9, Close=1.0 (Suuri ja laskeva)
+    data[4, 0, -1, :] = [1.5, 1.5, 0.9, 1.0]
+    # K=1 (M5), Viimeisin kynttilä: Open=1.3, Close=0.9 (Laskeva linjaus)
+    data[4, 1, -1, :] = [1.3, 1.3, 0.9, 0.9]
+    # K=2 (RNAI): Korkea myyntiaggressio (-2.5)
+    data[4, 2, :, :] = -2.5
+
     return jnp.array(data)
 
 def test_logic_precision():
-    print("=== VOJKER PHASE 2: LOGIC INTEGRITY TEST (Cpk 3.0) ===")
+    print("=== VOJKER PHASE 2: LOGIC INTEGRITY TEST (Cpk 3.0 Bi-directional) ===")
     
     tensor = create_synthetic_supertensor()
     
@@ -57,13 +67,13 @@ def test_logic_precision():
     
     print(f"Analysoitu 8 symbolia. Signaalimaski: {signals}")
 
-    # VALIDIOINTI
-    # Odotamme: Symboli 0 = True, muut = False
-    expected = jnp.array([True, False, False, False, False, False, False, False])
+    # VALIDIOINTI: 1=LONG, 2=SHORT, 0=NONE
+    # Odotamme: Symboli 0 = 1, Symboli 4 = 2, muut = 0
+    expected = jnp.array([1, 0, 0, 0, 2, 0, 0, 0])
     
     if jnp.array_equal(signals, expected):
-        print("\n  PASSED: Triple Quantile Gate erotti signaalin kohinasta täydellisesti.")
-        print("  PASSED: Gate III (RNAI) tunnisti absorption oikein.")
+        print("\n  PASSED: Triple Quantile Gate erotti LONG ja SHORT -signaalit kohinasta täydellisesti.")
+        print("  PASSED: Gate III (RNAI) tunnisti absorption ja suunnan oikein.")
     else:
         print("\n  FAILED: Logiikka antoi vääriä signaaleja!")
         for i, s in enumerate(signals):

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import jax
 import jax.numpy as jnp
 
@@ -6,7 +7,7 @@ def analyze_signal_core(tensor):
     """
     Panama Process Phase 2: Triple Quantile Gate (TQG)
     Input: (8, 3, 30, 4) Supertensor
-    Output: Boolean Mask (8,) - True jos Signal Core on löytynyt
+    Output: Mask (8,) - 0: Ei signaalia, 1: LONG, 2: SHORT
     """
     # vmap monistaa logiikan kaikille 8 symbolille yhtä aikaa
     vmapped_logic = jax.vmap(process_symbol_logic)
@@ -30,17 +31,23 @@ def process_symbol_logic(symbol_tensor):
 
     # 2. GATE II: Structural Alignment (Pareto 4%)
     # Onko M1 ja M5 samassa suunnassa (BOS-varmistus)?
-    m1_dir = m1[-1, 3] > m1[-1, 0] # Close > Open
-    m5_dir = m5[-1, 3] > m5[-1, 0]
-    gate2 = jnp.logical_and(m1_dir, m5_dir)
+    m1_up = m1[-1, 3] > m1[-1, 0] # Close > Open
+    m5_up = m5[-1, 3] > m5[-1, 0]
+    
+    m1_down = m1[-1, 3] < m1[-1, 0] # Close < Open
+    m5_down = m5[-1, 3] < m5[-1, 0]
+    
+    gate2_long = jnp.logical_and(m1_up, m5_up)
+    gate2_short = jnp.logical_and(m1_down, m5_down)
 
     # 3. GATE III: RNAI Aggression Filter (Signal Core 0.8%)
     # Tämä on "se iso juttu": Onko liike aitoa aggressiota (High RNAI)?
-    # Jos RNAI on positiivinen ja korkea, liike on aggressiivista ostoa.
-    # Jos RNAI on negatiivinen mutta hinta nousee, kyseessä on absorptio (valesignaali).
-    gate3 = rnai > 1.0 # Käytetään testissäsi näkynyttä dynaamista kynnysarvoa
+    gate3_long = rnai > 1.0 # Positiivinen RNAI = Ostoaggressio
+    gate3_short = rnai < -1.0 # Negatiivinen RNAI = Myyntiaggressio
 
     # Lopullinen päätös: Kaikkien porttien on oltava auki
-    signal_core = jnp.logical_and(jnp.logical_and(gate1, gate2), gate3)
+    is_long = jnp.logical_and(jnp.logical_and(gate1, gate2_long), gate3_long)
+    is_short = jnp.logical_and(jnp.logical_and(gate1, gate2_short), gate3_short)
     
-    return signal_core
+    # Palautetaan 1 (LONG), 2 (SHORT) tai 0 (Ei mitään)
+    return jnp.where(is_long, 1, jnp.where(is_short, 2, 0))
