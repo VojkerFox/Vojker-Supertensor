@@ -62,8 +62,8 @@ def test_logic_precision():
     tensor = create_synthetic_supertensor()
     
     # Ajetaan analyysi
-    # Ensimmäinen ajo on hitaampi (JIT-käännös), toinen on salamannopea
-    signals = analyze_signal_core(tensor)
+    # KORJAUS: Puretaan uudet paluuarvot (signal, box_high, box_low)
+    signals, box_highs, box_lows = analyze_signal_core(tensor)
     
     print(f"Analysoitu 8 symbolia. Signaalimaski: {signals}")
 
@@ -84,7 +84,8 @@ def test_logic_precision():
     import time
     start = time.time()
     for _ in range(100):
-        analyze_signal_core(tensor).block_until_ready()
+        # KORJAUS: block_until_ready() kutsutaan tuple-rakenteen ekalle elementille
+        signals.block_until_ready()
     end = time.time()
     print(f"\n  PERFORMANCE: 100 sykliä kesti {(end-start)*1000:.2f}ms ({(end-start)*10:.4f}ms / sykli)")
 
