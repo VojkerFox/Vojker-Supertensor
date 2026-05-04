@@ -8,8 +8,8 @@ import json
 import csv
 import os
 import sys
+import traceback
 
-# Korjataan moduulipolku
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import MetaTrader5 as mt5
@@ -20,7 +20,7 @@ from scripts.panama_fsm import PanamaFSM
 from scripts.spc_monitor import SPCMonitor
 
 # --- OPERATIONAL PARAMETERS (Cpk 3.0) ---
-CYCLE_TIME = 0.0625 # 16Hz (Moottorin absoluuttinen syke)
+CYCLE_TIME = 0.0625 # 16Hz (Moottorin syke)
 WOLFPACK_SYMBOLS = ["EURUSD", "GBPUSD", "USDJPY", "USDCAD", "AUDUSD", "NZDUSD", "USDCHF", "EURJPY"]
 
 # Raportointikanavat
@@ -29,30 +29,32 @@ HEARTBEAT_JSON = "heartbeat.json"
 
 def update_reports(cycle_data, actions, pg_db):
     """Varmistaa, että jokainen päätös on auditoitavissa (Bytes don't lie + SHA256)."""
-    with open(HEARTBEAT_JSON, "w") as f:
-        json.dump(cycle_data, f)
-    
-    file_exists = os.path.isfile(AUDIT_LOG_CSV)
-    with open(AUDIT_LOG_CSV, "a", newline="") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow(["Timestamp", "Symbol", "State", "Price", "RNAI", "Action"])
+    try:
+        with open(HEARTBEAT_JSON, "w") as f:
+            json.dump(cycle_data, f)
         
-        for i, action in enumerate(actions):
-            if action:
-                writer.writerow([
-                    time.time(), i, cycle_data['states'][i], 
-                    cycle_data['prices'][i], cycle_data['rnai'][i], action
-                ])
-                
-                # Kirjoitetaan SHA-256 lukittu tietokantakopio
-                pg_db.log_trade_decision(
-                    symbol_index=i,
-                    state=int(cycle_data['states'][i]),
-                    price=float(cycle_data['prices'][i]),
-                    rnai=float(cycle_data['rnai'][i]),
-                    action=str(action)
-                )
+        file_exists = os.path.isfile(AUDIT_LOG_CSV)
+        with open(AUDIT_LOG_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["Timestamp", "Symbol", "State", "Price", "RNAI", "Action"])
+            
+            for i, action in enumerate(actions):
+                if action:
+                    writer.writerow([
+                        time.time(), i, cycle_data['states'][i], 
+                        cycle_data['prices'][i], cycle_data['rnai'][i], action
+                    ])
+                    
+                    pg_db.log_trade_decision(
+                        symbol_index=i,
+                        state=int(cycle_data['states'][i]),
+                        price=float(cycle_data['prices'][i]),
+                        rnai=float(cycle_data['rnai'][i]),
+                        action=str(action)
+                    )
+    except Exception as e:
+        pass
 
 def render_trader_hud(cycle_data, spc_metrics=None):
     """Visualisoi Trader Command Center -näkymän (V6.3.3 Standard + SPC)."""
@@ -90,7 +92,10 @@ def render_trader_hud(cycle_data, spc_metrics=None):
     print("="*130)
 
 def start_triage_loop():
-    if not mt5.initialize(): return
+    if not mt5.initialize(): 
+        print("MT5 Initialization failed")
+        return
+        
     adapter, fsm = MT5Adapter(), PanamaFSM()
     spc = SPCMonitor(target_usl=3.0) 
     pg_db = PostgresAdapter() 
@@ -100,11 +105,20 @@ def start_triage_loop():
     cycle_count = 0
     spc_metrics = None
 
+    print("\033[92m[SYSTEM] Starting Live Execution Loop (Salama Box + Cpk 3.0)...\033[0m")
+
     try:
         while True:
             t_start = time.time()
-            tensor = adapter.get_wolfpack_tensors()
-            if tensor is None: continue
+            
+            try:
+                tensor = adapter.get_wolfpack_tensors()
+            except Exception as e:
+                time.sleep(1)
+                continue
+                
+            if tensor is None: 
+                continue
             
             # 1. Analyysi ja tilapäivitys
             signal_mask, box_highs, box_lows = analyze_signal_core(tensor)
@@ -114,40 +128,43 @@ def start_triage_loop():
 
             actions = fsm.update(signal_mask, box_highs, box_lows, current_prices, rnai_values)
 
-            # --- CPK 3.0: THE TRIGGER & EXIT PROTOCOL ---
+            # --- CPK 3.0: THE TRIGGER (THE TEETH) & EXIT PROTOCOL ---
             for i, action in enumerate(actions):
                 if action:
                     symbol = WOLFPACK_SYMBOLS[i]
-                    direction = fsm.directions[i]
+                    direction = int(fsm.directions[i])
                     
                     if "EXECUTE" in action:
-                        # Lasketaan dynaaminen kuminauha-positiointi (0.75% riski)
-                        box_size_pips = (box_highs[i] - box_lows[i]) * 10000 + 0.35
+                        # Dynaaminen kuminauha-positiointi (0.75% riski laatikon koosta)
+                        box_size_pips = float((box_highs[i] - box_lows[i]) * 10000 + 0.35)
                         lot_size = adapter.calculate_lot_size(symbol, box_size_pips, risk_pct=0.0075)
                         
-                        # Määritetään tasot
-                        entry_price = box_highs[i] if direction == 1 else box_lows[i]
-                        sl_price = fsm.sl_prices[i]
+                        entry_price = float(current_prices[i])
+                        sl_price = float(fsm.sl_prices[i])
                         
-                        # Suoritetaan toimeksianto
+                        # Suoritetaan toimeksianto MT5-adapterilla
                         order_id = adapter.execute_market_order(symbol, direction, lot_size, entry_price, sl_price)
                         
                         if order_id:
-                            # Tallennetaan snapshot vain toteutuneesta kaupasta ML Alpha Forgea varten
                             pg_db.save_tensor_snapshot(symbol_index=i, direction=direction, single_symbol_tensor=tensor[i])
-                            
+
                     elif "EXIT" in action:
-                        # --- EXIT PROTOCOL AKTIVOITU ---
-                        # FSM on laukaissut Absorption/Exhaustion exit -signaalin
+                        # EXIT PROTOCOL
                         adapter.close_position(symbol)
 
             latency = (time.time() - t_start) * 1000
             
+            # TURVALLINEN TYYPPIMUUNNOS .tolist() vikasietoisuutta varten
+            fsm_states_list = fsm.states.tolist() if hasattr(fsm.states, "tolist") else list(fsm.states)
+            prices_list = current_prices.tolist() if hasattr(current_prices, "tolist") else list(current_prices)
+            m5_levels_list = m5_levels.tolist() if hasattr(m5_levels, "tolist") else list(m5_levels)
+            rnai_values_list = rnai_values.tolist() if hasattr(rnai_values, "tolist") else list(rnai_values)
+
             cycle_data = {
-                "prices": current_prices.tolist(), 
-                "m5_levels": m5_levels.tolist(), 
-                "rnai": rnai_values.tolist(), 
-                "states": fsm.states.tolist(), 
+                "prices": prices_list, 
+                "m5_levels": m5_levels_list, 
+                "rnai": rnai_values_list, 
+                "states": fsm_states_list, 
                 "latency": latency
             }
             
@@ -165,6 +182,11 @@ def start_triage_loop():
             time.sleep(max(0, CYCLE_TIME - (time.time() - t_start)))
 
     except KeyboardInterrupt: 
+        print("\n\033[93m[SYSTEM] Triage Engine Shutting Down...\033[0m")
+        mt5.shutdown()
+    except Exception as e:
+        print(f"\n\033[91m[CRITICAL ERROR] Triage Engine Crashed: {e}\033[0m")
+        traceback.print_exc()
         mt5.shutdown()
 
 if __name__ == "__main__":

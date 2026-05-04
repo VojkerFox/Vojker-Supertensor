@@ -20,8 +20,8 @@ class PanamaFSM:
         self.states = jnp.zeros(8, dtype=jnp.int32)
         self.lock_prices = jnp.zeros(8, dtype=jnp.float32)
         self.directions = jnp.zeros(8, dtype=jnp.int32) # 1=LONG, -1=SHORT, 0=NONE
-        self.sl_prices = jnp.zeros(8, dtype=jnp.float32) # UUSI: Stop Loss -tasot
-        self.box_sizes = jnp.zeros(8, dtype=jnp.float32) # UUSI: Salaman laatikoiden koot
+        self.sl_prices = jnp.zeros(8, dtype=jnp.float32) # Stop Loss -tasot
+        self.box_sizes = jnp.zeros(8, dtype=jnp.float32) # Salaman laatikoiden koot
 
     def update(self, signal_mask, box_highs, box_lows, current_prices, current_rnai_values):
         """
@@ -53,21 +53,21 @@ class PanamaFSM:
                 if signal == 1: # LONG
                     self.states = self.states.at[i].set(self.ARMED)
                     self.lock_prices = self.lock_prices.at[i].set(box_highs[i]) # Entry katolta
-                    self.sl_prices = self.sl_prices.at[i].set(box_lows[i] - BUFFER) # SL laatikon alle + 0.35 pip
+                    self.sl_prices = self.sl_prices.at[i].set(box_lows[i] - BUFFER) # SL laatikon alle
                     self.box_sizes = self.box_sizes.at[i].set(box_highs[i] - box_lows[i] + BUFFER)
                     self.directions = self.directions.at[i].set(1)
                     actions.append(f"FSM_{i}: LONG_LOCKED at {box_highs[i]:.5f}. SL: {box_lows[i]-BUFFER:.5f}")
                 elif signal == 2: # SHORT
                     self.states = self.states.at[i].set(self.ARMED)
                     self.lock_prices = self.lock_prices.at[i].set(box_lows[i]) # Entry lattiasta
-                    self.sl_prices = self.sl_prices.at[i].set(box_highs[i] + BUFFER) # SL laatikon päälle + 0.35 pip
+                    self.sl_prices = self.sl_prices.at[i].set(box_highs[i] + BUFFER) # SL laatikon päälle
                     self.box_sizes = self.box_sizes.at[i].set(box_highs[i] - box_lows[i] + BUFFER)
                     self.directions = self.directions.at[i].set(-1)
                     actions.append(f"FSM_{i}: SHORT_LOCKED at {box_lows[i]:.5f}. SL: {box_highs[i]+BUFFER:.5f}")
                 else:
                     actions.append(None)
 
-            # 3. ARMED -> ACTION: The Trigger (Salaman murtuma + Aggressio)
+            # 3. ARMED -> ACTION: The Trigger (1.0 pip break WITH aggression)
             elif state == self.ARMED:
                 if direction == 1: # LONG
                     price_break = price > self.lock_prices[i]

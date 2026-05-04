@@ -54,5 +54,4 @@ def process_symbol_logic(symbol_tensor):
 
     signal = jnp.where(is_long, 1, jnp.where(is_short, 2, 0))
     
-    # Palautetaan signaali JA Salaman laatikon rajat
     return signal, box_high, box_low
