@@ -22,31 +22,35 @@ class MT5Adapter:
             if r_m1 is None or r_m5 is None or len(r_m1) < self.bars:
                 return None
             
-            # OHLC Data
+            # OHLC Data M1 (K=0) - Pidetään raakana nykyhetkenä
             m1_data = np.array([[r[1], r[2], r[3], r[4]] for r in r_m1], dtype=np.float32)
-            m5_data = np.array([[r[1], r[2], r[3], r[4]] for r in r_m5], dtype=np.float32)
+
+            # DETERMINISTINEN ANKKURI (K=1): Lasketaan keskiarvo raakadatan sijaan (Divergenssi)
+            m5_avg = np.mean([r[4] for r in r_m5]) 
+            m5_anchor_data = np.ones_like(m1_data) * m5_avg 
             
             # RNAI PROXY: (Close - Open) * TickVolume
             last_candle = r_m1[-1]
             net_aggression = (last_candle[4] - last_candle[1]) * last_candle[5] 
             symbol_aggressions.append(net_aggression)
             
-            raw_symbol_containers.append((m1_data, m5_data))
+            # Lisätään ankkuroitu data listaan
+            raw_symbol_containers.append((m1_data, m5_anchor_data))
 
         # VAIHE 2: Markkinan keskiarvon laskenta
         market_avg_aggression = np.mean(symbol_aggressions)
         
         # VAIHE 3: Rakennetaan lopullinen 4D-supertensori (8, 3, 30, 4)
         all_symbol_data = []
-        for i, (m1_data, m5_data) in enumerate(raw_symbol_containers):
+        for i, (m1_data, m5_anchor) in enumerate(raw_symbol_containers):
             # Lasketaan suhteellinen aggressio (RNAI)
             rnai_val = symbol_aggressions[i] - market_avg_aggression
             
             # K=2 täytetään RNAI-arvolla
             q_data = np.ones_like(m1_data, dtype=np.float32) * rnai_val
             
-            # Pinotaan sopimuksen mukaisesti (3, 30, 4)
-            symbol_stack = np.stack([m1_data, m5_data, q_data], axis=0)
+            # Pinotaan: K=0 (M1), K=1 (M5 Anchor), K=2 (RNAI Context)
+            symbol_stack = np.stack([m1_data, m5_anchor, q_data], axis=0)
             all_symbol_data.append(symbol_stack)
             
         return jnp.array(all_symbol_data) if len(all_symbol_data) == 8 else None
@@ -90,9 +94,8 @@ class MT5Adapter:
 
     def execute_market_order(self, symbol, direction, lot_size, entry_price, sl_price):
         """
-        UUSI: Lähettää varsinaisen toimeksiannon MT5-rajapintaan DYNAAMISELLA täyttötavalla.
+        Lähettää varsinaisen toimeksiannon MT5-rajapintaan DYNAAMISELLA täyttötavalla.
         Korjaa TRADE_RETCODE_TRADE_DISABLED (10017) virheen filling_mode-tunnistuksella.
-        Toimii kuten MQL5 CTrade SetTypeFillingBySymbol.
         """
         tick = mt5.symbol_info_tick(symbol)
         if tick is None:
@@ -105,7 +108,6 @@ class MT5Adapter:
         # --- DYNAAMINEN FILLING MODE (Cpk 3.0 Fix) ---
         filling_mode = getattr(symbol_info, "filling_mode", 0)
 
-        # Tarkistetaan bittimaskit deterministisesti ja vikasietoisesti
         if filling_mode & getattr(mt5, "SYMBOL_FILLING_MODE_IOC", 2) or filling_mode & getattr(mt5, "SYMBOL_FILLING_IOC", 2):
             filling_type = mt5.ORDER_FILLING_IOC
         elif filling_mode & getattr(mt5, "SYMBOL_FILLING_MODE_FOK", 1) or filling_mode & getattr(mt5, "SYMBOL_FILLING_FOK", 1):
@@ -113,7 +115,6 @@ class MT5Adapter:
         else:
             filling_type = mt5.ORDER_FILLING_RETURN
 
-        # Suunnan määritys (1 = BUY, -1 = SELL)
         order_type = mt5.ORDER_TYPE_BUY if direction == 1 else mt5.ORDER_TYPE_SELL
         price = tick.ask if direction == 1 else tick.bid
 
@@ -125,7 +126,7 @@ class MT5Adapter:
             "price": price,
             "sl": float(sl_price),
             "deviation": 10,
-            "magic": 0x7633f8, # Vojker-Magic heksadesimaalina
+            "magic": 0x7633f8, 
             "comment": "Vojker 0.75% Risk",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_type,
@@ -142,8 +143,8 @@ class MT5Adapter:
 
     def close_position(self, symbol):
         """
-        EXIT PROTOCOL: Etsii ja sulkee kaikki Vojker-magicilla (0x7633f8) merkityt avoimet positiot
-        määrätyllä symbolilla. Varmistaa deterministisen poistumisen markkinalta.
+        EXIT PROTOCOL: Etsii ja sulkee kaikki Vojker-magicilla merkityt positiot.
+        Varmistaa deterministisen poistumisen markkinalta.
         """
         positions = mt5.positions_get(symbol=symbol)
         if positions is None or len(positions) == 0:

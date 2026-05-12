@@ -6,7 +6,7 @@ import numpy as np
 from psycopg2 import sql
 
 class PostgresAdapter:
-    def __init__(self, dbname="postgres", user="postgres", password="password", host="localhost", port="5432"):
+    def __init__(self, dbname="vojker_db", user="postgres", password="password", host="localhost", port="5432"):
         """
         Vojker Cpk 3.0 PostgreSQL Adapter - Data Lake & Machine Learning Silo
         """
