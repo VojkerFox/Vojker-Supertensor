@@ -165,3 +165,33 @@ Current Status: PHASE 5 COMPLETED (Institutional Maturity & ML-Ready)
 
 ✅ Statistical Process Control (Cpk 3.0) & Alpha Forge Implementation (Phase 5)
 ````
+
+12.5.2026 Commit now a new baseline !!
+
+## Rigid 5-axis Tensor that enables SciML update and broader use-case
+
+Tämä on perusta kaikelle. Nykyinen tensorisi on muotoa (8, 3, 30, 4) eli (n, K, history, d).
+
+Mitä tehdään: Lisätään batch-akseli ($b$) ja laajennetaan kontekstia ($C$).Miksi ensin: JAX:n vmap ja pmap tarvitsevat tämän akseliston, jotta voimme ajaa tuhansia skenaarioita rinnakkain GPU:lla ilman Python-silmukoita.Shape-muutos: (batch, 8, 30, 4, context).
+
+Advantage:
+
+Disadvantage (compared to the old model):
+
+## Verlernzähler 255 (Reward Engineering)
+
+This is the "moral compass" of our SciML-model (scientific machine-learning-model)
+
+Mitä tehdään: Lisätään pg_adapter.py:n supertensor_vault -tauluun sarake productivity_score (0–255).
+
+Logiikka: 0 = Melu/Tappio, 255 = Kirurginen isku (Surgical Strike).
+
+Miksi toisena: Ilman tätä pisteytystä VJP/JVP ei tiedä, mihin suuntaan gradientteja pitäisi säätää. Meidän on opetettava järjestelmälle, mikä on "hyvää", ennen kuin voimme analysoida "miksi".
+
+## VJP ja JVP (Jacobian-nervous-system)
+
+This will literally wake the tensor alive.
+
+VJP (Root-Cause): Kun kauppa epäonnistuu (Score < 100), VJP laskee gradientin takaisinpäin tensorin läpi: "Oliko syy Gate II:n rakenteessa vai K=2 akselin aggression vaimenemisessa?"
+
+JVP (Stress-Test): "What-if" -analyysi. "Mitä jos spread laajenee 0.2 pipiä, hajoaako päätöksenteko?"
