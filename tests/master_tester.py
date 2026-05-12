@@ -31,7 +31,9 @@ def run_master_tester():
         ("Phase 2: Triple Quantile Gate (Logic)", "tests/test_logic.py"),
         ("Phase 3: Panama FSM (Bi-directional)", "tests/test_fsm.py"),
         ("Phase 4: Triage Engine & Trader HUD", "tests/test_triage_engine.py"),
-        ("Phase 5: DB & SPC Analytics", "tests/test_spc.py")
+        ("Phase 5: DB & SPC Analytics", "tests/test_spc.py"),
+        
+        ("phase 6: Account Audit (Broker Connection)", "tests/test_account_audit.py")
     ]
 
     total_errors = 0

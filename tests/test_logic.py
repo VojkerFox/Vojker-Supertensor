@@ -10,84 +10,68 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from packs.wolfpack_alpha.logic import analyze_signal_core
 
-def create_synthetic_supertensor():
+def create_lb_synthetic_tensor():
     """
-    Luodaan synteettinen (8, 3, 30, 4) tensori testausta varten.
-    Symboli 0: Täydellinen LONG signaali (Läpäisee kaikki portit)
-    Symboli 1: Kohina (Matala volatiliteetti - Gate I hylkää)
-    Symboli 2: Kohina (Väärä suunta - Gate II hylkää)
-    Symboli 3: Kohina (Matala RNAI / Absorptio - Gate III hylkää)
-    Symboli 4: Täydellinen SHORT signaali (UUSI)
-    Muut: Tyhjää
+    Luodaan (8, 3, 30, 4) tensori, joka simuloi Lightning Bolt -sekvenssiä.
     """
     shape = (8, 3, 30, 4)
-    # Alustetaan nollilla (Open=1.0, High=1.0, Low=1.0, Close=1.0)
-    data = np.ones(shape, dtype=np.float32)
+    # Alustetaan tasaisella hinnalla (1.1000)
+    data = np.ones(shape, dtype=np.float32) * 1.1000
     
-    # --- SYMBOLI 0: TÄYDELLINEN LONG SIGNAALI ---
-    # K=0 (M1), Viimeisin kynttilä: Open=1.0, High=1.5, Low=0.9, Close=1.4 (Suuri ja nouseva)
-    data[0, 0, -1, :] = [1.0, 1.5, 0.9, 1.4]
-    # K=1 (M5), Viimeisin kynttilä: Open=1.0, Close=1.2 (Nouseva linjaus)
-    data[0, 1, -1, :] = [1.0, 1.3, 0.9, 1.2]
-    # K=2 (RNAI): Korkea aggressio (2.5)
-    data[0, 2, :, :] = 2.5 
+    # M5 RESISTANCE (BOS-TASO): Asetetaan historiaksi 1.1005
+    data[:, 1, :-2, 1] = 1.1005 # M5 Highs
+    
+    # --- SYMBOLI 0: TÄYDELLINEN LONG LIGHTNING BOLT ---
+    # 1. Break (Kynttilä -2): Sulkeutuu yli 1.1005
+    data[0, 0, -2, :] = [1.1004, 1.1008, 1.1004, 1.1007] # O, H, L, C
+    
+    # 2. Retest & Trigger (Kynttilä -1):
+    # - Retest: Low käy 1.1005 tasolla
+    # - Trigger: Close ylittää 1.1008 (Break High) + 1 pip (0.0001) = 1.1018
+    data[0, 0, -1, :] = [1.1006, 1.1020, 1.1005, 1.1019]
+    data[0, 2, :, :] = 2.5 # Korkea RNAI aggressio
 
-    # --- SYMBOLI 1: MATALA VOLATILITEETTI (Hylkäys Gate I) ---
-    data[1, 0, -1, :] = [1.0, 1.01, 0.99, 1.0] # Liian pieni liike
+    # --- SYMBOLI 1: FAIL - EI RETEST-KOSKETUSTA ---
+    data[1, 0, -2, :] = [1.1004, 1.1008, 1.1004, 1.1007] 
+    data[1, 0, -1, :] = [1.1007, 1.1020, 1.1007, 1.1019] # Low on 1.1007 (ei kosketa 1.1005)
     data[1, 2, :, :] = 2.5
 
-    # --- SYMBOLI 2: RAKENTEELLINEN RISTIRIITA (Hylkäys Gate II) ---
-    data[2, 0, -1, :] = [1.0, 1.5, 0.9, 1.4] # M1 Nousee
-    data[2, 1, -1, :] = [1.3, 1.4, 0.9, 1.0] # M5 Laskee (K-linjaus rikki)
-    data[2, 2, :, :] = 2.5
+    # --- SYMBOLI 2: FAIL - EI RNAI-AGGRESSIOTA ---
+    data[2, 0, -2, :] = [1.1004, 1.1008, 1.1004, 1.1007] 
+    data[2, 0, -1, :] = [1.1006, 1.1020, 1.1005, 1.1019] 
+    data[2, 2, :, :] = 0.2 # Liian matala aggressio
 
-    # --- SYMBOLI 3: ABSORPTIO (Hylkäys Gate III) ---
-    data[3, 0, -1, :] = [1.0, 1.5, 0.9, 1.4] # Hinta nousee
-    data[3, 1, -1, :] = [1.0, 1.3, 0.9, 1.2] # M5 linjassa
-    data[3, 2, :, :] = -0.5 # MUTTA RNAI negatiivinen (Passiivinen absorptio, ei aggressio)
-
-    # --- SYMBOLI 4: TÄYDELLINEN SHORT SIGNAALI ---
-    # K=0 (M1), Viimeisin kynttilä: Open=1.5, High=1.5, Low=0.9, Close=1.0 (Suuri ja laskeva)
-    data[4, 0, -1, :] = [1.5, 1.5, 0.9, 1.0]
-    # K=1 (M5), Viimeisin kynttilä: Open=1.3, Close=0.9 (Laskeva linjaus)
-    data[4, 1, -1, :] = [1.3, 1.3, 0.9, 0.9]
-    # K=2 (RNAI): Korkea myyntiaggressio (-2.5)
-    data[4, 2, :, :] = -2.5
+    # --- SYMBOLI 3: TÄYDELLINEN SHORT LIGHTNING BOLT ---
+    # M5 SUPPORT: 1.0995
+    data[3, 1, :-2, 2] = 1.0995 # M5 Lows
+    # Break: Sulkeutuu alle 1.0995
+    data[3, 0, -2, :] = [1.0996, 1.0996, 1.0990, 1.0992]
+    # Retest (High 1.0995) & Trigger (Low 1.0992 - 1 pip = 1.0982)
+    data[3, 0, -1, :] = [1.0993, 1.0995, 1.0980, 1.0981]
+    data[3, 2, :, :] = -2.5
 
     return jnp.array(data)
 
-def test_logic_precision():
-    print("=== VOJKER PHASE 2: LOGIC INTEGRITY TEST (Cpk 3.0 Bi-directional) ===")
+def test_lb_physics():
+    print("=== VOJKER PHASE 2.1: LIGHTNING BOLT PHYSICS TEST (Cpk 3.0) ===")
     
-    tensor = create_synthetic_supertensor()
-    
-    # Ajetaan analyysi
-    # KORJAUS: Puretaan uudet paluuarvot (signal, box_high, box_low)
+    tensor = create_lb_synthetic_tensor()
     signals, box_highs, box_lows = analyze_signal_core(tensor)
+    
+    # Odotetut signaalit: Sym 0 = LONG (1), Sym 3 = SHORT (2), muut = 0
+    expected = jnp.array([1, 0, 0, 2, 0, 0, 0, 0])
     
     print(f"Analysoitu 8 symbolia. Signaalimaski: {signals}")
 
-    # VALIDIOINTI: 1=LONG, 2=SHORT, 0=NONE
-    # Odotamme: Symboli 0 = 1, Symboli 4 = 2, muut = 0
-    expected = jnp.array([1, 0, 0, 0, 2, 0, 0, 0])
-    
     if jnp.array_equal(signals, expected):
-        print("\n  PASSED: Triple Quantile Gate erotti LONG ja SHORT -signaalit kohinasta täydellisesti.")
-        print("  PASSED: Gate III (RNAI) tunnisti absorption ja suunnan oikein.")
+        print("\n  \033[92mPASSED: Lightning Bolt Protocol verified (Break -> Retest -> Trigger).\033[0m")
+        print("  PASSED: Retest-kosketus on pakollinen.")
+        print("  PASSED: Dynaaminen 1 pip kynnys ja RNAI toimivat.")
     else:
-        print("\n  FAILED: Logiikka antoi vääriä signaaleja!")
+        print("\n  \033[91mFAILED: Fysiikkavirhe havaittu!\033[0m")
         for i, s in enumerate(signals):
             if s != expected[i]:
-                print(f"    Virhe symbolissa {i}: Odotettiin {expected[i]}, saatiin {s}")
-
-    # Suorituskykytesti (JIT)
-    import time
-    start = time.time()
-    for _ in range(100):
-        # KORJAUS: block_until_ready() kutsutaan tuple-rakenteen ekalle elementille
-        signals.block_until_ready()
-    end = time.time()
-    print(f"\n  PERFORMANCE: 100 sykliä kesti {(end-start)*1000:.2f}ms ({(end-start)*10:.4f}ms / sykli)")
+                print(f"    Syy: Symboli {i} antoi {s}, odotettiin {expected[i]}")
 
 if __name__ == "__main__":
-    test_logic_precision()
+    test_lb_physics()
