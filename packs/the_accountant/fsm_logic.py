@@ -1,56 +1,57 @@
+# -*- coding: utf-8 -*-
 import jax
 import jax.numpy as jnp
 
-@jax.jit
-def evaluate_jidoka_daily(current_state: jnp.ndarray, daily_pnl_pct: jnp.ndarray, config_tensor: jnp.ndarray) -> jnp.ndarray:
-    """
-    Jidoka-hätäkatkaisin.
-    Ottaa sisään nykyisen tilan, päivän PnL:n ja prop-firman sääntötensorin.
-    Palauttaa uuden tilan.
-    
-    config_tensorin rakenne: [PROFIT_TARGET_PCT, MAX_DAILY_LOSS_PCT, MAX_TRAILING_LOSS_PCT]
-    Indeksi 1 on MAX_DAILY_LOSS_PCT (esim. -0.015)
-    """
-    
-    # Erotetaan päivittäinen tappioraja tensorista
-    max_daily_loss = config_tensor[1]
-    
-    # Poka-Yoke: Puhdas matriisimaski (jax.where).
-    # Ehto: Onko päivän tappio pienempi tai yhtä suuri kuin raja (esim. -0.016 <= -0.015 -> True)
-    # Jos True -> Tila on 0 (NEUTRAL / HÄTÄSEIS).
-    # Jos False -> Säilytetään current_state.
-    new_state = jnp.where(daily_pnl_pct <= max_daily_loss, 0, current_state)
-    
-    # Palautetaan uusi tensori (ei in-place mutaatiota)
-    return new_state
-
-# Cpk 3.0 Vaatimus: Vektorisointi ja monistettavuus (vmap)
+# Pakotetaan 64-bittinen tarkkuus finanssilaskentaan
+jax.config.update("jax_enable_x64", True)
 
 @jax.jit
-def evaluate_absolute_jidoka(current_state: jnp.ndarray, current_equity: jnp.ndarray, hwm: jnp.ndarray, daily_pnl_pct: jnp.ndarray, config_tensor: jnp.ndarray) -> jnp.ndarray:
-    """
-    Absolute Jidoka Shield (Cpk 3.0 Standard).
-    Yhdistää sekä päivittäisen että High Water Mark (HWM) -pohjaisen Trailing Lossin.
-    Jos jompikumpi ylittää sallitun varoitusrajan, FSM pakotetaan 0: NEUTRAL.
-    
-    config_tensor: [PROFIT_TARGET_PCT, MAX_DAILY_LOSS_PCT, MAX_TRAILING_LOSS_PCT]
-    """
+def evaluate_absolute_jidoka(current_state, current_equity, hwm, daily_pnl_pct, config_tensor):
+    """Issue #3: Yhdistetty Jidoka-kilpi (Daily + Trailing)."""
     max_daily_loss = config_tensor[1]
     max_trailing_loss = config_tensor[2]
-
-    # 1. Laske Trailing etäisyys (Kuinka paljon ollaan alle huipun)
+    
     trailing_pnl_pct = (current_equity - hwm) / hwm
-
-    # 2. Evaluoi bittimaskit (Onko rajat rikottu?)
-    # Huom: JAX käyttää bittioperaattoreita boolean-taulukoille.
+    
     is_daily_breach = daily_pnl_pct <= max_daily_loss
     is_trailing_breach = trailing_pnl_pct <= max_trailing_loss
-
-    # 3. Yhdistä ehdot Poka-Yoke-kilveksi. Jos jompikumpi sääntö paukkuu, arvo on True.
-    # VAROITUS: Käytä `|`, älä Pythonin `or` -avainsanaa!
+    
+    # Bittitason OR-maski
     is_breach = is_daily_breach | is_trailing_breach
+    
+    return jnp.where(is_breach, 0, current_state)
 
-    # 4. Pakota tila 0 (HÄTÄSEIS), muuten säilytä nykyinen tila
-    new_state = jnp.where(is_breach, 0, current_state)
+@jax.jit
+def validate_and_size_position(signal, live_price, box_high, box_low, config_tensor):
+    """
+    Issue #5: Deterministinen positiokoon laskenta numeerisella vakaudella.
+    config_tensor: [..., FIXED_RISK_USD, MIN_SL_DISTANCE, CONTRACT_SIZE]
+    """
+    risk_usd = config_tensor[3]
+    min_sl_dist = config_tensor[4]
+    contract_size = config_tensor[5]
+    
+    # Epsilon-puskuri (1e-11) estää liukulukuvirheet (kuten 1.24999 vs 1.25)
+    eps = 1e-11
 
-    return new_state
+    # 1. Laske SL-etäisyys (Käytetään jnp.inf NaN-vuodon estämiseen)
+    sl_dist_long = live_price - box_low
+    sl_dist_short = box_high - live_price
+
+    sl_dist = jnp.where(signal == 1, sl_dist_long,
+              jnp.where(signal == 2, sl_dist_short, jnp.inf))
+
+    # 2. Laske raakavolyymi
+    raw_volume = risk_usd / (sl_dist * contract_size)
+
+    # 3. Poka-Yoke Hylkäysmaskit (Lisätään epsilon vertailuun)
+    is_valid_vol = (raw_volume + eps) >= 0.01
+    is_safe_dist = (sl_dist + eps) >= min_sl_dist
+    
+    is_safe = (signal > 0) & is_valid_vol & is_safe_dist
+    
+    # 4. Finalisointi: Lisätään eps ennen floor-pyöristystä
+    final_signal = jnp.where(is_safe, signal, 0)
+    final_volume = jnp.where(is_safe, jnp.floor((raw_volume + eps) * 100) / 100, 0.0)
+    
+    return final_signal, final_volume
