@@ -1,0 +1,29 @@
+name: The AccountorPro CI/CD (Poka-Yoke)
+
+on:
+  push:
+    branches: [ "The_AccountorPro", "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  audit-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Hae koodi (Checkout)
+      uses: actions/checkout@v3
+
+    - name: Asenna Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Asenna riippuvuudet
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest jax jaxlib dataclasses
+
+    - name: Aja Poka-Yoke Testit (RED/GREEN)
+      # Tämä on Andon-naru. Jos tämä epäonnistuu, yhdistäminen (merge) estetään.
+      run: |
+        PYTHONPATH=. pytest packs/the_accountant/tests/ -v
