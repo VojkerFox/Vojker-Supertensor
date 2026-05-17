@@ -21,9 +21,10 @@ jobs:
       - name: Asenna riippuvuudet
         run: |
           python -m pip install --upgrade pip
-          pip install pytest jax jaxlib dataclasses
+          pip install pytest jax jaxlib dataclasses numpy
 
       - name: Aja Poka-Yoke Testit (RED/GREEN)
         # Tämä on Andon-naru. Jos tämä epäonnistuu, yhdistäminen (merge) estetään.
+        # Nyt Tullimies tarkastaa sekä vanhat (leveraged_core) että UUDEN JAX-ytimen (tests/)
         run: |
-          PYTHONPATH=. pytest leveraged_core/tests/ -v
+          PYTHONPATH=. pytest leveraged_core/tests/ tests/ -v
