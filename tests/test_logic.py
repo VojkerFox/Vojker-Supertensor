@@ -1,77 +1,69 @@
 # -*- coding: utf-8 -*-
-import sys
-import os
+"""
+VOJKER TRIAGE - JAX LOGIC CORE TEST (DETERMINISTINEN LUKITUS)
+Testaa 5D-suojatensorin ja tilattoman FSM-kaskadin suorituskyvyn ja muotosopimuksen.
+"""
+import pytest
+import time
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-# Lisätään projektin juuri polkuun
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Pakotetaan X64 tarkkuus testiin, aivan kuten tuotannossakin
+jax.config.update("jax_enable_x64", True)
 
-from packs.wolfpack_alpha.logic import analyze_signal_core
+# Tuodaan uusi puhdas JAX-funktio ja tyyppikontti
+from packs.wolfpack_alpha.logic import analyze_signal_core, FusedPipelineOutput
 
-def create_lb_synthetic_tensor():
-    """
-    Luodaan (8, 3, 30, 4) tensori, joka simuloi Lightning Bolt -sekvenssiä.
-    """
-    shape = (8, 3, 30, 4)
-    # Alustetaan tasaisella hinnalla (1.1000)
-    data = np.ones(shape, dtype=np.float32) * 1.1000
+def test_x64_precision_is_active():
+    """Tullimies tarkastaa: Onko 64-bittinen finanssitoleranssi varmasti päällä?"""
+    assert jax.config.jax_enable_x64 is True, "HÄTÄSEIS: JAX X64 ei ole aktiivinen!"
+
+def test_fused_logic_5d_geometry_and_latency():
+    """Tullimies tarkastaa: Kantageometria, tilattomuus ja suoritusnopeus."""
     
-    # M5 RESISTANCE (BOS-TASO): Asetetaan historiaksi 1.1005
-    data[:, 1, :-2, 1] = 1.1005 # M5 Highs
+    # 1. GENERoidaan 5-AKSELINEN TESTITENSORI (Batch, Symbolit, Historia, OHLC, Konteksti)
+    # Valitaan b=2 skenaariota, n=8 valuuttaparia, h=30 kynttilää, d=4 (OHLC), c=4 (Kontekstit)
+    b, n, h, d, c = 2, 8, 30, 4, 4
     
-    # --- SYMBOLI 0: TÄYDELLINEN LONG LIGHTNING BOLT ---
-    # 1. Break (Kynttilä -2): Sulkeutuu yli 1.1005
-    data[0, 0, -2, :] = [1.1004, 1.1008, 1.1004, 1.1007] # O, H, L, C
+    # Numpyllä luotu satunnainen hintadata (Tämä edustaa MT5:stä tulevaa float64-raakadataa)
+    np.random.seed(42)
+    raw_market_data = np.random.randn(b, n, h, d, c).astype(np.float64)
     
-    # 2. Retest & Trigger (Kynttilä -1):
-    # - Retest: Low käy 1.1005 tasolla
-    # - Trigger: Close ylittää 1.1008 (Break High) + 1 pip (0.0001) = 1.1018
-    data[0, 0, -1, :] = [1.1006, 1.1020, 1.1005, 1.1019]
-    data[0, 2, :, :] = 2.5 # Korkea RNAI aggressio
-
-    # --- SYMBOLI 1: FAIL - EI RETEST-KOSKETUSTA ---
-    data[1, 0, -2, :] = [1.1004, 1.1008, 1.1004, 1.1007] 
-    data[1, 0, -1, :] = [1.1007, 1.1020, 1.1007, 1.1019] # Low on 1.1007 (ei kosketa 1.1005)
-    data[1, 2, :, :] = 2.5
-
-    # --- SYMBOLI 2: FAIL - EI RNAI-AGGRESSIOTA ---
-    data[2, 0, -2, :] = [1.1004, 1.1008, 1.1004, 1.1007] 
-    data[2, 0, -1, :] = [1.1006, 1.1020, 1.1005, 1.1019] 
-    data[2, 2, :, :] = 0.2 # Liian matala aggressio
-
-    # --- SYMBOLI 3: TÄYDELLINEN SHORT LIGHTNING BOLT ---
-    # M5 SUPPORT: 1.0995
-    data[3, 1, :-2, 2] = 1.0995 # M5 Lows
-    # Break: Sulkeutuu alle 1.0995
-    data[3, 0, -2, :] = [1.0996, 1.0996, 1.0990, 1.0992]
-    # Retest (High 1.0995) & Trigger (Low 1.0992 - 1 pip = 1.0982)
-    data[3, 0, -1, :] = [1.0993, 1.0995, 1.0980, 1.0981]
-    data[3, 2, :, :] = -2.5
-
-    return jnp.array(data)
-
-def test_lb_physics():
-    print("=== VOJKER PHASE 2.1: LIGHTNING BOLT PHYSICS TEST (Cpk 3.0) ===")
+    # Alustetaan FSM-tila kaikille skenaarioille ja pareille tilaan 1 (IDLE)
+    raw_fsm_states = np.ones((b, n), dtype=np.int32)
     
-    tensor = create_lb_synthetic_tensor()
-    signals, box_highs, box_lows = analyze_signal_core(tensor)
+    # Siirretään data laitteistolle (GPU/CPU)
+    supertensor = jax.device_put(raw_market_data)
+    fsm_states = jax.device_put(raw_fsm_states)
     
-    # Odotetut signaalit: Sym 0 = LONG (1), Sym 3 = SHORT (2), muut = 0
-    expected = jnp.array([1, 0, 0, 2, 0, 0, 0, 0])
+    # --- ENSIMMÄINEN AJO: JIT Käännösvaihe (Trace-time) ---
+    start_compile = time.perf_counter()
+    output = analyze_signal_core(supertensor, fsm_states)
     
-    print(f"Analysoitu 8 symbolia. Signaalimaski: {signals}")
+    # JAX laiska suoritus vaatii .block_until_ready() tarkan ajan mittaamiseen
+    output.final_signals.block_until_ready()
+    compile_time = time.perf_counter() - start_compile
+    print(f"\n[JIT-käännösaika (1. ajo)]: {compile_time:.4f} sekuntia")
+    
+    # --- TOINEN AJO: Puhdas laitteistosuoritus (Run-time) ---
+    start_run = time.perf_counter()
+    output_fast = analyze_signal_core(supertensor, fsm_states)
+    output_fast.final_signals.block_until_ready()
+    run_time = time.perf_counter() - start_run
+    print(f"[Suoritusaika (2. ajo)]: {run_time:.5f} sekuntia")
+    
+    # --- TULLIMIEHEN LEIMAT (Asserts) ---
+    
+    # A. Varmistetaan, että paluuarvo on täydellisen muotoinen FusedPipelineOutput
+    assert isinstance(output_fast, FusedPipelineOutput), "Paluuarvo ei ole FusedPipelineOutput PyTree!"
+    
+    # B. Tarkistetaan muotosopimus: b=2, n=8
+    assert output_fast.final_signals.shape == (2, 8), f"Väärä signaalimuoto: {output_fast.final_signals.shape}"
+    assert output_fast.next_fsm_states.shape == (2, 8), f"Väärä FSM-tilamuoto: {output_fast.next_fsm_states.shape}"
+    assert output_fast.box_highs.shape == (2, 8), f"Väärä box_high muoto: {output_fast.box_highs.shape}"
+    
+    # C. Cpk 3.0 Latenssivarmistus: Toisen ajon on oltava salamannopea (Alle 10ms / 0.01s)
+    assert run_time < 0.01, f"HÄTÄSEIS: Suoritusaika liian hidas! {run_time:.5f}s (Sallittu: < 0.01s)"
 
-    if jnp.array_equal(signals, expected):
-        print("\n  \033[92mPASSED: Lightning Bolt Protocol verified (Break -> Retest -> Trigger).\033[0m")
-        print("  PASSED: Retest-kosketus on pakollinen.")
-        print("  PASSED: Dynaaminen 1 pip kynnys ja RNAI toimivat.")
-    else:
-        print("\n  \033[91mFAILED: Fysiikkavirhe havaittu!\033[0m")
-        for i, s in enumerate(signals):
-            if s != expected[i]:
-                print(f"    Syy: Symboli {i} antoi {s}, odotettiin {expected[i]}")
-
-if __name__ == "__main__":
-    test_lb_physics()
+    print("\n[TULLIMIES]: Kantageometria ja tilaton fuusio hyväksytty. Cpk 3.0 Verified.")

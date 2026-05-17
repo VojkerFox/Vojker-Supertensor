@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Hae koodi (Checkout)
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # <-- Päivitetty uuteen standardiin
 
       - name: Asenna Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # <-- Päivitetty uuteen standardiin
         with:
           python-version: "3.11"
 
@@ -24,7 +24,5 @@ jobs:
           pip install pytest jax jaxlib dataclasses numpy
 
       - name: Aja Poka-Yoke Testit (RED/GREEN)
-        # Tämä on Andon-naru. Jos tämä epäonnistuu, yhdistäminen (merge) estetään.
-        # Nyt Tullimies tarkastaa sekä vanhat (leveraged_core) että UUDEN JAX-ytimen (tests/)
         run: |
           PYTHONPATH=. pytest leveraged_core/tests/ tests/ -v
