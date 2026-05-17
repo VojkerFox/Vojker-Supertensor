@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Hae koodi (Checkout)
-        uses: actions/checkout@v4 # <-- Päivitetty uuteen standardiin
+        uses: actions/checkout@v4
 
       - name: Asenna Python 3.11
-        uses: actions/setup-python@v5 # <-- Päivitetty uuteen standardiin
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -24,5 +24,7 @@ jobs:
           pip install pytest jax jaxlib dataclasses numpy
 
       - name: Aja Poka-Yoke Testit (RED/GREEN)
+        # Eristetään testaus vain puhtaaseen JAX-matematiikkaan, 
+        # koska Linux-runner ei tue Windowsin MetaTrader5-kirjastoa.
         run: |
-          PYTHONPATH=. pytest leveraged_core/tests/ tests/ -v
+          PYTHONPATH=. pytest leveraged_core/tests/ tests/test_logic.py -v
