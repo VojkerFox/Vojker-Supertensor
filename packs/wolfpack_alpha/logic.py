@@ -14,7 +14,8 @@ class FusedPipelineOutput(NamedTuple):
     box_highs: jnp.ndarray
     box_lows: jnp.ndarray
 
-def process_symbol_logic(symbol_tensor, current_fsm_state):
+# Vanha: def process_symbol_logic(symbol_tensor, current_fsm_state):
+def process_symbol_logic(symbol_tensor, current_fsm_state, pip_size):
     """
     Yhden instrumentin logiikka (One-Piece Flow). 
     symbol_tensorin muoto: (30, 4, 4) -> (Historia, OHLC, Konteksti)
@@ -43,9 +44,9 @@ def process_symbol_logic(symbol_tensor, current_fsm_state):
     phase_2_low  = jnp.min(m1[-4:-1, 2])
 
     # --- VAIHE 3: THE LIGHTNING TRIGGER (1.5 Pips Ylitys) ---
-    # 1.5 pipsiä = 0.00015 (Standardi 5-desimaalin data)
-    trigger_long_level = phase_2_high + 0.00015
-    trigger_short_level = phase_2_low - 0.00015
+    # Oraakkelin korjaus: Skaalataan 1.5 pipsiä instrumentin oman pip-koon mukaan!
+    trigger_long_level = phase_2_high + (1.5 * pip_size)
+    trigger_short_level = phase_2_low - (1.5 * pip_size)
 
     # Yhdistetään säännöt: 
     # 1. M5 rakenne murtunut
@@ -78,18 +79,17 @@ def process_symbol_logic(symbol_tensor, current_fsm_state):
 # YLÄTASON MOOTTORI: Vektoroidaan yhden kappaleen virtaus laitteistolle
 # -----------------------------------------------------------------------------
 
-# Vmap taso 1: Monistetaan 8 valuuttaparille (Wolfpack)
-vmap_wolfpack = jax.vmap(process_symbol_logic, in_axes=(0, 0))
+# Vmap taso 1: Monistetaan 8 valuuttaparille (Lisätään pip_size akseli)
+vmap_wolfpack = jax.vmap(process_symbol_logic, in_axes=(0, 0, 0))
 
-# Vmap taso 2: Monistetaan rinnakkaisille skenaarioille (Batch-akseli)
-vmap_batch = jax.vmap(vmap_wolfpack, in_axes=(0, 0))
+# Vmap taso 2: Monistetaan rinnakkaisille skenaarioille
+vmap_batch = jax.vmap(vmap_wolfpack, in_axes=(0, 0, 0))
 
-@jax.jit(donate_argnums=(1,)) # Muistisopimus (Buffer Donation) aktivoitu!
-def analyze_signal_core(supertensor, fsm_states):
-    """
-    XLA-optimoitu ydinmoottori.
-    """
-    next_states, signals, b_highs, b_lows = vmap_batch(supertensor, fsm_states)
+@jax.jit(donate_argnums=(1,)) 
+def analyze_signal_core(supertensor, fsm_states, pip_sizes):
+    """ XLA-optimoitu ydinmoottori. """
+    next_states, signals, b_highs, b_lows = vmap_batch(supertensor, fsm_states, pip_sizes)
+    
     
     return FusedPipelineOutput(
         next_fsm_states=next_states,
