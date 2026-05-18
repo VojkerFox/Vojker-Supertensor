@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-VOJKER TRIAGE - LOGIC CORE v2.0 (JEDI-MODE / FUSED FSM)
+VOJKER TRIAGE - LOGIC CORE v2.1 (PHASE 3 TRIGGER OIKAISTU)
 Status: CPK 3.0 VERIFIED | 5D Kantageometria | 100% Stateless
 """
 import jax
@@ -16,29 +16,44 @@ class FusedPipelineOutput(NamedTuple):
 
 def process_symbol_logic(symbol_tensor, current_fsm_state):
     """
-    Yhden instrumentin logiikka. 
-    Sisääntulevan symbol_tensorin muoto on (30, 4, 4) -> (Historia, OHLC, Konteksti)
+    Yhden instrumentin logiikka (One-Piece Flow). 
+    symbol_tensorin muoto: (30, 4, 4) -> (Historia, OHLC, Konteksti)
     """
     # 0 = M1, 1 = M5, 2 = RNAI
     m1 = symbol_tensor[:, :, 0]
     m5 = symbol_tensor[:, :, 1]
-    rnai = symbol_tensor[-1, 0, 2] # Viimeisimmän kynttilän Open-arvosta tallennettu RNAI
+    rnai = symbol_tensor[-1, 0, 2] # Viimeisimmän kynttilän RNAI-arvo
 
-    # --- 1. RAKENTEEN TUNNISTUS (M5 BOS) ---
-    m5_res = jnp.max(m5[:-1, 1]) # Kaikki paitsi viimeisin kynttilä, High-sarake (1)
-    m5_sup = jnp.min(m5[:-1, 2]) # Kaikki paitsi viimeisin kynttilä, Low-sarake (2)
+    # --- VAIHE 1: RAKENTEEN TUNNISTUS (M5 BOS) ---
+    m5_res = jnp.max(m5[:-1, 1]) # Kaikki paitsi viimeisin kynttilä, High-sarake
+    m5_sup = jnp.min(m5[:-1, 2]) # Kaikki paitsi viimeisin kynttilä, Low-sarake
 
-    # --- 2. LIGHTNING BOLT (Dynaaminen Entry) ---
+    # --- VAIHE 2: M1 BREAK & RETEST (The Setup Box) ---
+    # Katsotaan onko nykyinen kynttilä rikkonut M5-tason
     break_long = m1[-1, 1] > m5_res
     break_short = m1[-1, 2] < m5_sup
     
-    # Retest (Kynttilän häntä koskettaa tasoa, 0.2 pips liukuma. Huom. X64 toleranssi suojaa!)
+    # Retest (Kynttilän häntä käy koskettamassa M5-BOS rajaa 0.2 pipsin toleranssilla)
     retest_long = m1[-1, 2] <= (m5_res + 0.00002)
     retest_short = m1[-1, 1] >= (m5_sup - 0.00002)
 
-    # Trigger (Välitön vauhti)
-    is_long = break_long & retest_long & (rnai > 0.8)
-    is_short = break_short & retest_short & (rnai < -0.8)
+    # Määritetään "Liitutaulun" (Phase 2 Break-box) katto ja lattia 
+    # Otetaan viimeisen 3 sulkeutuneen kynttilän absoluuttinen huippu ja pohja
+    phase_2_high = jnp.max(m1[-4:-1, 1])
+    phase_2_low  = jnp.min(m1[-4:-1, 2])
+
+    # --- VAIHE 3: THE LIGHTNING TRIGGER (1.5 Pips Ylitys) ---
+    # 1.5 pipsiä = 0.00015 (Standardi 5-desimaalin data)
+    trigger_long_level = phase_2_high + 0.00015
+    trigger_short_level = phase_2_low - 0.00015
+
+    # Yhdistetään säännöt: 
+    # 1. M5 rakenne murtunut
+    # 2. Retest tehty (0.2p)
+    # 3. RNAI tukee suuntaa
+    # 4. KOVA TRIGGER: Nykyisen kynttilän Close on 1.5 pipsiä yli Vaihe 2:n katon!
+    is_long = break_long & retest_long & (rnai > 0.8) & (m1[-1, 3] > trigger_long_level)
+    is_short = break_short & retest_short & (rnai < -0.8) & (m1[-1, 3] < trigger_short_level)
 
     # --- Cpk 3.0 JAX-Tyyppikorjaus ---
     val_long = jnp.int32(1)
@@ -48,12 +63,12 @@ def process_symbol_logic(symbol_tensor, current_fsm_state):
     # Ehtolauseeton signaalivalinta (Operation Fusion)
     raw_signal = jnp.where(is_long, val_long, jnp.where(is_short, val_short, val_idle))
 
-    # --- 3. TILATON PANAMA FSM -SIIRTYMÄ (Stateless Lock) ---
-    # Jos nykyinen tila on 1 (IDLE) ja signaali laukeaa, siirrytään tilaan 3 (ACTION).
+    # --- TILATON PANAMA FSM -SIIRTYMÄ (Stateless Lock) ---
+    # Jos tila on 1 (IDLE) ja yllä oleva kova Phase 3 Trigger laukeaa -> siirry tilaan 3 (ACTION)
     has_trigger = raw_signal > 0
     next_state = jnp.where((current_fsm_state == 1) & has_trigger, jnp.int32(3), current_fsm_state)
 
-    # --- 4. SALAMAN LAATIKKO ---
+    # --- SALAMAN LAATIKKO (Riskienhallinnan puskurit) ---
     box_high = jnp.max(m1[-5:, 1]) + 0.00005
     box_low = jnp.min(m1[-5:, 2]) - 0.00005
 
@@ -69,14 +84,11 @@ vmap_wolfpack = jax.vmap(process_symbol_logic, in_axes=(0, 0))
 # Vmap taso 2: Monistetaan rinnakkaisille skenaarioille (Batch-akseli)
 vmap_batch = jax.vmap(vmap_wolfpack, in_axes=(0, 0))
 
-@jax.jit(donate_argnums=(1,)) # Laitteistotason muistisopimus (Buffer Donation) aktivoitu!
+@jax.jit(donate_argnums=(1,)) # Muistisopimus (Buffer Donation) aktivoitu!
 def analyze_signal_core(supertensor, fsm_states):
     """
     XLA-optimoitu ydinmoottori.
-    supertensor: (batch, 8, 30, 4, 4)
-    fsm_states: (batch, 8)
     """
-    # XLA kaataa datan kääntäjän läpi ja päivittää FSM-tilat välimuistissa
     next_states, signals, b_highs, b_lows = vmap_batch(supertensor, fsm_states)
     
     return FusedPipelineOutput(
